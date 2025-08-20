@@ -1,2 +1,4 @@
-original/
-original_pytorch/
+./original/
+./original_pytorch/
+./__pycache__/
+./out/

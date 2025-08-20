@@ -20,6 +20,15 @@ DATASET_PATH = "./data/maestro-v3.0.0/"
 DATASET_PROCESSED_PATH = "./data/maestro-v3.0.0-processed/"
 DUMMY = "./data/dummy/"
 
+def visualize_mat(mat):
+    plt.figure(figsize=(12, 6))
+    plt.imshow(mat, origin='lower', aspect='auto')
+    plt.title('Roll')
+    plt.xlabel('Time (in ticks)')
+    plt.ylabel('Pitch (MIDI note number)')
+    plt.colorbar(label='Velocity')
+    plt.show()
+
 class MIDIDataset(Dataset):
     def __init__(self, root_dir):
         super().__init__()
@@ -64,14 +73,7 @@ class MIDIDataset(Dataset):
         # print(f"pianoroll: {pianoroll} shape: {pianoroll.shape}")
 
         # # Visualize the piano roll
-        # plt.figure(figsize=(12, 6))
-        # plt.imshow(pianoroll[0, 0] + pianoroll[1, 0], origin='lower', aspect='auto',
-        #         extent=[0, pianoroll.shape[3], 0, 128])
-        # plt.title('Piano Roll (Track 0)')
-        # plt.xlabel('Time (in ticks)')
-        # plt.ylabel('Pitch (MIDI note number)')
-        # plt.colorbar(label='Velocity')
-        # plt.show()
+        # visualize_mat(pianoroll)
 
         # score.dump_midi(DUMMY + "out_score.midi")
         # score_resampled.dump_midi(DUMMY + "out_score_resampled.midi")
@@ -82,10 +84,51 @@ class MIDIDataset(Dataset):
 
         return pianoroll, self.file_names[idx]
 
-def data_loader():
-    for dirpath, _, files in os.walk(DATASET_PROCESSED_PATH):
-        for file in files:
-            pass # TODO
+class MatDataset(Dataset):
+    # loading all the data into memory for now, shouldn't be a problem
+    def __init__(self, root_dir, time_len):
+        super().__init__()
+        self.time_len = time_len
+        self.mats = []
+
+
+        # we'll use fixed time length matrices
+        def chop_mat(x):
+            mats = []
+
+            if x.shape[1] <= self.time_len:
+                zer = np.zeros((x.shape[0], self.time_len), dtype=np.float32)
+                zer[:, :x.shape[1]] = x
+                mats.append(zer)
+                return mats
+
+            i = 0
+            while i < x.shape[1]:
+                if i+self.time_len <= x.shape[1]:
+                    mats.append(x[:, i:i + self.time_len])
+                    i = i + self.time_len
+                else:
+                    rest = x[:, i:]
+                    zer = np.zeros((rest.shape[0], self.time_len), dtype=np.float32)
+                    zer[:, :rest.shape[1]] = rest
+                    mats.append(zer)
+                    break
+
+            return mats
+
+
+        for dirpath, _, files in os.walk(DATASET_PROCESSED_PATH):
+            for file in files:
+                file_full_path = dirpath + file
+                x = np.load(file_full_path, allow_pickle=True)
+                self.mats = self.mats + chop_mat(x)
+
+    def __len__(self):
+        return len(self.mats)
+
+    def __getitem__(self, idx):
+        return torch.tensor(self.mats[idx], dtype=torch.float32)
+
 
 def process_dataset():
     d = MIDIDataset(DATASET_PATH)
@@ -93,6 +136,16 @@ def process_dataset():
         notes, filename = d.__getitem__(i)
         filename, _ = os.path.splitext(filename)
         notes.dump(DATASET_PROCESSED_PATH + filename + ".npy")
+
+def get_processed_dataset(time_len):
+    return MatDataset(DATASET_PROCESSED_PATH, time_len)
+
+def split_dataset(dataset, ratios):
+    from torch.utils.data import random_split
+    total = len(dataset)
+    lengths = [int(r * total) for r in ratios]
+    lengths[-1] = total - sum(lengths[:-1])  # fix rounding
+    return random_split(dataset, lengths)
 
 def dummy():
     d = MIDIDataset(DUMMY)
@@ -110,4 +163,11 @@ def dummy():
     notes = d.__getitem__(5)
 
 if __name__ == "__main__":
-    process_dataset()
+    output_dir = "./out"
+
+    d = get_processed_dataset(2000)
+
+    os.mkdir(output_dir)
+    for i in range(10):
+        print(f"roll {i+1}")
+        visualize_mat(d.__getitem__(i))
