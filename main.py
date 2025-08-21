@@ -4,12 +4,12 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 
-from data import get_processed_dataset, split_dataset
+from data import get_processed_dataset, split_dataset, visualize_mat
 
 TIME_LEN = 5000
 BATCH_SIZE = 16
-NR_EPOCHS = 50
-TRAIN_RATIO = 1
+NR_EPOCHS = 1
+TRAIN_RATIO = 0.1
 OUT_DIR = "./out/"
 
 
@@ -166,8 +166,8 @@ def main():
     for epoch in range(epochs):
         iter = 0
         for real in train_loader:
-            print(f"iteration {iter} of {len(train_set)}")
-            real = real.to(device)  # (B,1,88,fixed_len)
+            print(f"iteration {iter} of {len(train_loader)}")
+            real = real.to(device)            # (B,1,88,fixed_len)
             real = real.unsqueeze(1)          # (B, 1, 88, T)
             B = real.size(0)
 
@@ -176,6 +176,7 @@ def main():
             fake_labels = torch.zeros(B, 1, device=device)
 
             ## ---- Train Discriminator ----
+            print("-- Train D")
             z = torch.randn(B, z_dim, device=device)
             fake = G(z).detach()
 
@@ -183,21 +184,27 @@ def main():
             out_fake = D(fake)
 
             loss_D = criterion(out_real, real_labels) + criterion(out_fake, fake_labels)
+            print(f"-- Calculated D loss: {loss_D.item()}")
 
             opt_D.zero_grad()
             loss_D.backward()
             opt_D.step()
+            print("-- Optimized D loss")
 
             ## ---- Train Generator ----
+            print("-- Train G")
             z = torch.randn(B, z_dim, device=device)
             fake = G(z)
 
             out_fake = D(fake)
             loss_G = criterion(out_fake, real_labels)  # generator wants D(fake)=1
+            print(f"-- Calculated G loss: {loss_G.item()}")
 
             opt_G.zero_grad()
             loss_G.backward()
             opt_G.step()
+            print("-- Optimized G loss")
+
             iter = iter + 1
 
         print(f"Epoch {epoch+1}, Loss_D: {loss_D.item():.4f}, Loss_G: {loss_G.item():.4f}")
@@ -219,10 +226,14 @@ def main():
         rolls = G(z).cpu().numpy()  # shape (B, 1, 88, T)
         rolls = rolls[:, 0]         # shape (B, 88, T)
 
-    for i in range(rolls.shape[0]):
-        roll = binarize_roll(rolls[i,0])
-        midi = roll_to_midi(roll, fs=16)
-        midi.write(OUT_DIR + f"generated_{i}.mid")
+    for roll in rolls:
+        visualize_mat(roll)
+
+
+    # for i in range(rolls.shape[0]):
+    #     roll = binarize_roll(rolls[i,0])
+    #     midi = roll_to_midi(roll, fs=16)
+    #     midi.dump_midi(OUT_DIR + f"generated_{i}.midi")
 
 
 if __name__ == "__main__":
